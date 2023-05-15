@@ -1,53 +1,87 @@
-import subprocess
+import dns.resolver
 import sys
 
 domain = sys.argv[1]
 
-#Create a function that given a domain, will return the DMARC policy for that domain.
+# Create a function that given a domain, will return the DMARC policy for that domain.
+
+
 def has_vulnerable_domain(domain):
-    p = subprocess.run('dig @8.8.8.8 '+domain+' MX +short', shell=True, capture_output=True)
-    return "google.com" in str(p.stdout) or "outlook.com" in str(p.stdout)
+    try:
+        mx_records = dns.resolver.resolve(domain, 'MX')
+        for record in mx_records:
+            if 'google.com' in str(record.exchange) or 'outlook.com' in str(record.exchange):
+                return True
+        return False
+    except dns.resolver.NXDOMAIN:
+        return False
+    except dns.resolver.NoAnswer:
+        return False
+    except dns.exception.DNSException:
+        return False
+
 
 def get_mx(domain):
-    p = subprocess.run('dig @8.8.8.8 '+domain+' MX +short', shell=True, capture_output=True)
-    if "google.com" in str(p.stdout):
-        return "google mx"
-    
-    if "outlook.com" in str(p.stdout):
-        return "outlook mx"
+    try:
+        mx_records = dns.resolver.resolve(domain, 'MX')
+        for record in mx_records:
+            if 'google.com' in str(record.exchange):
+                return 'google mx'
+            elif 'outlook.com' in str(record.exchange):
+                return 'outlook mx'
+        return 'Not vulnerable'
+    except dns.resolver.NXDOMAIN:
+        return 'Not vulnerable'
+    except dns.resolver.NoAnswer:
+        return 'Not vulnerable'
+    except dns.exception.DNSException:
+        return 'Not vulnerable'
 
-    return "Not vulnerable"
-    
 
 def get_spf(domain):
-    p = subprocess.run('dig @8.8.8.8 '+domain+' txt +short', shell=True, capture_output=True)
-    
-    if "-all" in str(p.stdout):
-        return "Fail"
-    if "~all" in str(p.stdout):
-        return "SoftFail"
-    
-    return "None"
+    try:
+        txt_records = dns.resolver.resolve(domain, 'TXT')
+        for record in txt_records:
+            if '-all' in record.to_text():
+                return 'Fail'
+            elif '~all' in record.to_text():
+                return 'SoftFail'
+        return 'None'
+    except dns.resolver.NXDOMAIN:
+        return 'None'
+    except dns.resolver.NoAnswer:
+        return 'None'
+    except dns.exception.DNSException:
+        return 'None'
+
 
 def get_dmarc(domain):
-    p = subprocess.run('dig @8.8.8.8 _dmarc.'+domain+' txt +short', shell=True, capture_output=True)
-
-    if "p=quarantine" in str(p.stdout):
-        return "Quarantine"
-
-    if "p=reject" in str(p.stdout):
-        return "Reject"
-        
-    return "None"
+    try:
+        txt_records = dns.resolver.resolve('_dmarc.' + domain, 'TXT')
+        for record in txt_records:
+            if 'p=quarantine' in record.to_text():
+                return 'Quarantine'
+            elif 'p=reject' in record.to_text():
+                return 'Reject'
+        return 'None'
+    except dns.resolver.NXDOMAIN:
+        return 'None'
+    except dns.resolver.NoAnswer:
+        return 'None'
+    except dns.exception.DNSException:
+        return 'None'
 
 
 def get_vulnerable(domain):
     if not has_vulnerable_domain(domain):
         return False
 
-    if "None" in get_dmarc(domain):
+    dmarc_result = get_dmarc(domain)
+    spf_result = get_spf(domain)
+
+    if dmarc_result == 'None':
         return True
-    if "Quarantine" in get_dmarc(domain) and "SoftFail" in get_spf(domain):
+    if dmarc_result == 'Quarantine' and spf_result == 'SoftFail':
         return True
 
     return False
@@ -55,13 +89,12 @@ def get_vulnerable(domain):
 
 def get_general_info(domain):
     return {
-        "MX" : get_mx(domain),
-        "SPF" : get_spf(domain),
-        "DMARC" : get_dmarc(domain),
-        "!VULNERABLE!" : get_vulnerable(domain)
+        'MX': get_mx(domain),
+        'SPF': get_spf(domain),
+        'DMARC': get_dmarc(domain),
+        '!VULNERABLE!': get_vulnerable(domain)
     }
-    
 
 
 result = get_general_info(domain)
-print (result)
+print(result)
